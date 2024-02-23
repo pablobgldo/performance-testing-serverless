@@ -1,10 +1,9 @@
 from opensearchpy import OpenSearch, RequestsHttpConnection, AWSV4SignerAuth
-from opensearchpy.helpers import bulk
 import boto3
+import time
 
-endpoint = 'https://ncv09ykby1jyu22efh3c.eu-west-1.aoss.amazonaws.com'
-source_index = 'f8dc4047-9cfb-4141-8db5-ec1abfd1d48b'
-target_index = 'pablo-test'
+endpoint = ''
+source_index = ''
 
 session = boto3.Session()
 credentials = session.get_credentials()
@@ -18,9 +17,9 @@ client = OpenSearch(
     timeout=60
 )
 
-def upload_documents(client, source, target, max_documents=2000000):
+def pull_data(client, source):
     body = {
-        "size": 5000,
+        "size": 10000,
         "query": {
             "match_all": {}
         },
@@ -28,32 +27,30 @@ def upload_documents(client, source, target, max_documents=2000000):
             {'_id': "asc"}
         ]
     }
-    documents_uploaded = 0
+    document_count = 0
     last_sort_value = None
+    start_time = time.perf_counter()
 
-    while documents_uploaded < max_documents:
+    while True:
         if last_sort_value is not None:
             body['search_after'] = [last_sort_value]
 
         response = client.search(index=source, body=body)
         hits = response['hits']['hits']
+        document_count += len(hits)
+        if document_count % 100000 == 0:
+            print(f'{document_count} documents have been retrieved')
         if not hits:
             break
-
-        bulk_operations = [{
-            "_index": target,
-            "_op_type": "index",
-            "_source": hit["_source"]
-        } for hit in hits]
-
-        bulk(client, bulk_operations)
-        documents_uploaded += len(hits)
-        print(f'Uploaded {len(hits)} documents, {documents_uploaded} in total.')
 
         if len(hits) > 0:
             last_sort_value = hits[-1]['sort'][0]
         else:
             break
 
-client.indices.delete(index='pablo-test')
-upload_documents(client, source_index, target_index)
+    end_time = time.perf_counter()
+    total_time = end_time - start_time
+    print(f'Total documents pulled: {document_count}. Total time: {total_time:.2f} seconds')
+
+if __name__ == "__main__":
+    pull_data(client, source_index)
